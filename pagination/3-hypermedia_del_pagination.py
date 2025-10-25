@@ -1,56 +1,61 @@
 #!/usr/bin/env python3
-"""Server pagination - with hypermedia metadata"""
+"""
+Deletion-resilient hypermedia pagination
+"""
 
 import csv
 import math
-from typing import List, Tuple
-
-
-def index_range(page: int, page_size: int) -> Tuple[int, int]:
-    """Return a tuple containing a start index and an end index."""
-    start = (page - 1) * page_size
-    end = page * page_size
-    return (start, end)
+from typing import List, Dict
 
 
 class Server:
-    """Server class to paginate a database of popular baby names."""
+    """Server class to paginate a database of popular baby names.
+    """
     DATA_FILE = "Popular_Baby_Names.csv"
 
     def __init__(self):
         self.__dataset = None
+        self.__indexed_dataset = None
 
     def dataset(self) -> List[List]:
-        """Cached dataset"""
+        """ Cached dataset """
         if self.__dataset is None:
             with open(self.DATA_FILE) as f:
                 reader = csv.reader(f)
                 dataset = [row for row in reader]
-            self.__dataset = dataset[1:]  # skip header
+            self.__dataset = dataset[1:]
+
         return self.__dataset
 
-    def get_page(self, page: int = 1, page_size: int = 10) -> List[List]:
-        """Return the requested page of the dataset."""
-        assert isinstance(page, int) and isinstance(page_size, int)
-        assert page > 0 and page_size > 0
+    def indexed_dataset(self) -> Dict[int, List]:
+        """ Dataset indexed by sorting position, starting at 0 """
+        if self.__indexed_dataset is None:
+            dataset = self.dataset()
+            truncated_dataset = dataset[:1000]
+            self.__indexed_dataset = {
+                i: dataset[i] for i in range(len(dataset))
+            }
+        return self.__indexed_dataset
 
-        start, end = index_range(page, page_size)
-        data = self.dataset()
+    def get_hyper_index(self, index: int = None, page_size: int = 10) -> Dict:
+        """ Get Hyper Index """
+        assert isinstance(index, int)
+        assert isinstance(page_size, int)
 
-        if start >= len(data):
-            return []
-        return data[start:end]
+        assert page_size > 0
+        assert 0 <= index < len(self.indexed_dataset())
 
-    def get_hyper(self, page: int = 1, page_size: int = 10) -> dict:
-        """Return a dictionary containing pagination info and data."""
-        data = self.get_page(page, page_size)
-        total_pages = math.ceil(len(self.dataset()) / page_size)
-
-        return {
-            "page_size": len(data),
-            "page": page,
-            "data": data,
-            "next_page": page + 1 if page < total_pages else None,
-            "prev_page": page - 1 if page > 1 else None,
-            "total_pages": total_pages,
-        }
+        my_list, my_dict = list(), dict()
+        next_index = index + page_size
+        index_dataset = self.indexed_dataset()
+        for i in range(index, next_index):
+            if index_dataset.get(i):
+                my_list.append(index_dataset[i])
+            else:
+                next_index += 1
+                i += 1
+        my_dict['data'] = my_list
+        my_dict['index'] = index
+        my_dict['next_index'] = next_index
+        my_dict['page_size'] = page_size
+        return my_dict
